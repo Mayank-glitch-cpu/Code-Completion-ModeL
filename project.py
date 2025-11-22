@@ -402,7 +402,7 @@ results_log = []
 
 if EXPERIMENT_TYPE == 'rank':
     ranks_to_test = [4, 16, 64]
-    train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=5000)
+    train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=500)  # Reduced to 10% to avoid disk space issues
     
     for r in ranks_to_test:
         print(f"\n{'='*50}")
@@ -440,8 +440,8 @@ if EXPERIMENT_TYPE == 'rank':
             continue
 
 elif EXPERIMENT_TYPE == 'scale':
-    samples_to_test = [1000, 5000, 10000]
-    full_train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=15000)
+    samples_to_test = [100, 500, 1000]  # Reduced to 10% to avoid disk space issues
+    full_train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=1500)  # Reduced to 10% to avoid disk space issues
     
     for s in samples_to_test:
         print(f"\n{'='*50}")
