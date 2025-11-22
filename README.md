@@ -295,4 +295,83 @@ GPT-2's statistical learning is **language-neutral**:
 Based on our multi-dimensional analysis, the **optimal setup for deployment** is:
 
 ```python
-#
+# Optimal Configuration
+MODEL = "gpt2"
+LORA_RANK = 16              # Sweet spot for efficiency
+TRAINING_SAMPLES = 1000+    # Beyond complexity trap
+TARGET_LANGUAGE = "python"  # Best evaluation support
+EPOCHS = 3
+LEARNING_RATE = 1e-4
+```
+
+**Expected Performance**:
+- BLEU: ~10-12
+- Syntax Pass Rate: 40-50%
+- Training Time: ~15 minutes (GPU) / ~2 hours (CPU)
+
+## 🤝 Contributing
+
+Contributions are welcome! Areas for improvement:
+- Multi-language evaluation infrastructure
+- Additional programming languages
+- Larger-scale experiments
+- Alternative evaluation metrics
+
+```bash
+# Fork the repository
+# Create a feature branch
+git checkout -b feature/your-feature
+
+# Make changes and commit
+git commit -am "Add new feature"
+
+# Push and create pull request
+git push origin feature/your-feature
+```
+
+## 📝 Citation
+
+If you use this research in your work, please cite:
+
+```bibtex
+@misc{vyas2025codecompletion,
+  author = {Vyas, M.},
+  title = {Multi-Dimensional Analysis of Code Generation Efficiency in Fine-Tuned LLMs},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/mvyas7/Code-Completion-ModeL}
+}
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Datasets**: CodeParrot team for curated code datasets
+- **Models**: Hugging Face for pre-trained GPT-2
+- **Framework**: Microsoft for LoRA (PEFT) implementation
+
+## 📧 Contact
+
+**Author**: Mihir Vyas  
+**Email**: mvyas7@example.com  
+**GitHub**: [@mvyas7](https://github.com/mvyas7)
+
+---
+
+**⭐ If you find this research useful, please consider starring the repository!**
+
+---
+
+## 🔗 Quick Links
+
+- [Dataset Documentation](DATASET_README.md)
+- [Detailed Results & Analysis](RESULTS_README.md)
+- [Issues & Bug Reports](https://github.com/mvyas7/Code-Completion-ModeL/issues)
+- [Project Wiki](https://github.com/mvyas7/Code-Completion-ModeL/wiki)
+
+---
+
+*Last Updated: November 22, 2025**
