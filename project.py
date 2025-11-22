@@ -41,6 +41,32 @@ from tqdm.auto import tqdm
 hf_logging.set_verbosity_error()
 os.environ["WANDB_DISABLED"] = "true"
 
+# Configure HuggingFace cache to use /tmp for minimal disk usage
+import tempfile
+import shutil
+
+# Configure HuggingFace cache to use /tmp for minimal disk usage
+cache_dir = tempfile.mkdtemp(prefix="hf_cache_")
+os.environ["HF_DATASETS_CACHE"] = cache_dir
+os.environ["HF_HOME"] = cache_dir
+
+def get_dir_size(path):
+    """Get directory size in MB"""
+    try:
+        total = 0
+        for entry in os.scandir(path):
+            if entry.is_file():
+                total += entry.stat().st_size
+            elif entry.is_dir():
+                total += get_dir_size(entry.path)
+        return total / (1024 * 1024)  # Convert to MB
+    except:
+        return 0
+
+print(f"📁 HuggingFace cache directory: {cache_dir}")
+print(f"   (Using temporary directory for minimal disk usage)")
+print(f"   Initial cache size: {get_dir_size(cache_dir):.2f} MB")
+
 # ==========================================
 # 1. GPU DETECTION & CONFIGURATION
 # ==========================================
@@ -97,7 +123,7 @@ def print_gpu_memory(stage=""):
         print(f"[{stage}] GPU Memory - Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
 
 # Configuration
-EXPERIMENT_TYPE = 'rank'  # Options: 'rank', 'scale', 'lang'
+EXPERIMENT_TYPE = 'lang'  # ← Change this from 'scale' to 'lang'
 MODEL_NAME = "gpt2"
 EPOCHS = 3
 LEARNING_RATE = 1e-4
@@ -113,18 +139,27 @@ print(f"Device: {DEVICE}")
 
 def get_dataset(lang="python", sample_size=5000):
     """
-    Loads dataset with proper token ID validation.
+    Loads dataset with proper token ID validation using streaming (no disk cache).
     """
-    print(f"Loading {lang} dataset...")
+    print("\n" + "="*60)
+    print(f"📥 DATASET LOADING - {lang.upper()}")
+    print("="*60)
+    print(f"Target samples: {sample_size} (will fetch {sample_size * 3} for filtering)")
+    print(f"Mode: STREAMING (on-the-fly, minimal disk usage)")
+    print("="*60)
+    
     try:
-        ds = load_dataset("codeparrot/github-code", streaming=False, split="train", languages=[lang])
-        ds = ds.take(sample_size * 3)  # Take more for filtering
-    except:
+        print(f"Attempting to load codeparrot/github-code with streaming=True...")
+        ds = load_dataset("codeparrot/github-code", streaming=True, split="train", languages=[lang], trust_remote_code=True)
+        print("✓ Successfully connected to github-code dataset (streaming)")
+    except Exception as e:
+        print(f"⚠ Failed to load github-code: {str(e)[:100]}")
         print("Falling back to CodeParrot...")
-        ds = load_dataset("codeparrot/codeparrot-clean-train", split="train", streaming=False)
-        ds = ds.take(sample_size * 3)
+        ds = load_dataset("codeparrot/codeparrot-clean-train", split="train", streaming=True, trust_remote_code=True)
+        print("✓ Successfully connected to codeparrot-clean-train dataset (streaming)")
     
     # Initialize tokenizer FIRST
+    print("\n📦 Loading tokenizer and model config...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
@@ -138,8 +173,8 @@ def get_dataset(lang="python", sample_size=5000):
     if HAS_GPU:
         torch.cuda.empty_cache()
     
-    print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
-    print(f"Model vocab size: {actual_vocab_size}")
+    print(f"✓ Tokenizer vocab size: {tokenizer.vocab_size}")
+    print(f"✓ Model vocab size: {actual_vocab_size}")
     
     # Format dataset
     def format_prompt(example):
@@ -148,8 +183,28 @@ def get_dataset(lang="python", sample_size=5000):
             code = code[:2000]
         return {"text": f"### Code:\n{code}"}
     
-    # Process dataset
-    processed_ds = ds.map(format_prompt)
+    # Collect samples from stream (IN MEMORY, NOT ON DISK)
+    print(f"\n🔄 Streaming {sample_size * 3} examples into memory...")
+    print("Note: This happens ON-THE-FLY without saving to disk")
+    ds_list = []
+    sample_count = 0
+    target_samples = sample_size * 3
+    
+    for idx, example in enumerate(ds):
+        if sample_count >= target_samples:
+            break
+        ds_list.append(example)
+        sample_count += 1
+        if (sample_count % 100) == 0:
+            print(f"  Streamed: {sample_count}/{target_samples} samples (in memory)", end='\r')
+    
+    print(f"\n✓ Collected {len(ds_list)} samples in memory")
+    
+    # Process dataset IN MEMORY
+    from datasets import Dataset
+    print("\n🔧 Processing samples in memory...")
+    processed_ds = Dataset.from_dict({k: [d[k] for d in ds_list] for k in ds_list[0].keys()})
+    processed_ds = processed_ds.map(format_prompt)
     
     def tokenize_and_validate(examples):
         """Tokenize with strict validation"""
@@ -181,15 +236,23 @@ def get_dataset(lang="python", sample_size=5000):
             "labels": [ids.copy() for ids in valid_input_ids]
         }
     
+    print("🔧 Tokenizing samples (in memory, no disk cache)...")
     tokenized_ds = processed_ds.map(
         tokenize_and_validate,
         batched=True,
         batch_size=100,
-        remove_columns=processed_ds.column_names
+        remove_columns=processed_ds.column_names,
+        load_from_cache_file=False,  # DISABLE DISK CACHE
+        keep_in_memory=True  # KEEP IN MEMORY ONLY
     )
     
     # Filter out empty entries
-    tokenized_ds = tokenized_ds.filter(lambda x: len(x['input_ids']) > 0)
+    print("🔍 Filtering valid samples...")
+    tokenized_ds = tokenized_ds.filter(
+        lambda x: len(x['input_ids']) > 0,
+        load_from_cache_file=False,  # DISABLE DISK CACHE
+        keep_in_memory=True  # KEEP IN MEMORY ONLY
+    )
     
     # Create train/eval split
     if len(tokenized_ds) < sample_size:
@@ -199,7 +262,15 @@ def get_dataset(lang="python", sample_size=5000):
     train_ds = tokenized_ds.select(range(min(sample_size, len(tokenized_ds) - 50)))
     eval_ds = tokenized_ds.select(range(len(tokenized_ds) - 50, len(tokenized_ds)))
     
-    print(f"✓ Dataset loaded: {len(train_ds)} train, {len(eval_ds)} eval samples")
+    print("\n" + "="*60)
+    print("✅ DATASET READY")
+    print("="*60)
+    print(f"Training samples: {len(train_ds)}")
+    print(f"Evaluation samples: {len(eval_ds)}")
+    print(f"Total samples in memory: {len(tokenized_ds)}")
+    print(f"Storage: IN MEMORY (no disk cache used)")
+    print(f"Cache disk usage: {get_dir_size(cache_dir):.2f} MB")
+    print("="*60 + "\n")
     
     return train_ds, eval_ds, tokenizer
 
@@ -307,7 +378,7 @@ def evaluate_model(model, tokenizer, eval_ds, lang="python"):
 # 4. TRAINING (FIXED)
 # ==========================================
 
-def run_training(train_ds, eval_ds, tokenizer, lora_rank=8, output_name="run"):
+def run_training(train_ds, eval_ds, tokenizer, lora_rank=16, output_name="run"):
     """
     Training with proper model initialization and automatic device placement
     """
@@ -402,7 +473,17 @@ results_log = []
 
 if EXPERIMENT_TYPE == 'rank':
     ranks_to_test = [4, 16, 64]
-    train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=500)  # Reduced to 10% to avoid disk space issues
+    
+    print("\n" + "="*60)
+    print("🧪 STARTING RANK EXPERIMENT")
+    print("="*60)
+    print(f"Ranks to test: {ranks_to_test}")
+    print(f"Cache disk usage before loading data: {get_dir_size(cache_dir):.2f} MB")
+    print("="*60 + "\n")
+    
+    train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=200)  # Reduced to avoid disk space issues
+    
+    print(f"💾 Cache disk usage after loading data: {get_dir_size(cache_dir):.2f} MB\n")
     
     for r in ranks_to_test:
         print(f"\n{'='*50}")
@@ -439,13 +520,19 @@ if EXPERIMENT_TYPE == 'rank':
                 torch.cuda.empty_cache()
             continue
 
-elif EXPERIMENT_TYPE == 'scale':
-    samples_to_test = [100, 500, 1000]  # Reduced to 10% to avoid disk space issues
-    full_train_ds, eval_ds, tokenizer = get_dataset(lang="python", sample_size=1500)  # Reduced to 10% to avoid disk space issues
+elif EXPERIMENT_TYPE == 'lang':
+    languages_to_test = ['python', 'java', 'javascript']
     
-    for s in samples_to_test:
+    print("\n" + "="*60)
+    print("🧪 STARTING LANGUAGE EXPERIMENT")
+    print("="*60)
+    print(f"Languages to test: {languages_to_test}")
+    print(f"Cache disk usage before loading data: {get_dir_size(cache_dir):.2f} MB")
+    print("="*60 + "\n")
+    
+    for lang in languages_to_test:
         print(f"\n{'='*50}")
-        print(f"Testing Dataset Size: {s}")
+        print(f"Testing Language: {lang.upper()}")
         print('='*50)
         
         # Clear GPU memory if available
@@ -454,24 +541,29 @@ elif EXPERIMENT_TYPE == 'scale':
             torch.cuda.synchronize()
         
         try:
-            subset_train = full_train_ds.select(range(min(s, len(full_train_ds))))
-            model = run_training(subset_train, eval_ds, tokenizer, lora_rank=16, output_name=f"size_{s}")
+            train_ds, eval_ds, tokenizer = get_dataset(lang=lang, sample_size=200)
+            
+            print(f"💾 Cache disk usage after loading {lang} data: {get_dir_size(cache_dir):.2f} MB\n")
+            
+            model = run_training(train_ds, eval_ds, tokenizer, lora_rank=16, output_name=f"lang_{lang}")
             
             # Clear GPU memory if available
             if HAS_GPU:
                 torch.cuda.empty_cache()
             
-            metrics = evaluate_model(model, tokenizer, eval_ds)
-            metrics['Configuration'] = f"Size {s}"
+            metrics = evaluate_model(model, tokenizer, eval_ds, lang=lang)
+            metrics['Configuration'] = f"{lang.capitalize()}"
             results_log.append(metrics)
-            print(f"✓ Size {s} Results: BLEU={metrics['BLEU']:.2f}, Syntax={metrics['Syntax_Pass_Rate']:.1f}%")
+            print(f"✓ {lang.upper()} Results: BLEU={metrics['BLEU']:.2f}, Syntax={metrics['Syntax_Pass_Rate']:.1f}%")
             
-            del model
+            del model, train_ds, eval_ds, tokenizer
             if HAS_GPU:
                 torch.cuda.empty_cache()
                 
         except Exception as e:
-            print(f"❌ Error in size {s} experiment: {str(e)}")
+            print(f"❌ Error in {lang} experiment: {str(e)}")
+            import traceback
+            traceback.print_exc()
             if HAS_GPU:
                 torch.cuda.empty_cache()
             continue
@@ -531,4 +623,21 @@ if HAS_GPU:
         print(f"  Total: {total:.2f} GB")
     print("="*60)
 
+# Print disk usage summary
+print("\n" + "="*60)
+print("💾 DISK USAGE SUMMARY")
+print("="*60)
+print(f"Cache directory: {cache_dir}")
+print(f"Total cache size: {get_dir_size(cache_dir):.2f} MB")
+print(f"Status: All data processed in-memory with streaming")
+print("="*60)
+
 print("\n✓ Experiment complete!")
+
+# Cleanup cache directory
+try:
+    print(f"\n🧹 Cleaning up temporary cache: {cache_dir}")
+    shutil.rmtree(cache_dir)
+    print("✓ Cache cleaned up successfully")
+except Exception as e:
+    print(f"⚠ Could not clean cache: {e}")
