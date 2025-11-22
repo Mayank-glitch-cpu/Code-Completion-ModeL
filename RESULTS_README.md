@@ -31,7 +31,7 @@ Our findings reveal **non-linear relationships** in learning efficiency, the exi
 | Rank 16      | 9.34       | 30.0%              |
 | Rank 64      | 9.64       | 25.0%              |
 
-![Rank Experiment Results](results_rank.png)
+![Rank Experiment Results](/results/results_rank.png)
 
 ### Inference & Analysis
 
@@ -79,7 +79,7 @@ Our experiments **contradict the assumption** that "more parameters equal better
 | Size 150     | 9.91       | 40.0%              |
 | Size 300     | 12.64      | 40.0%              |
 
-![Scale Experiment Results](results_scale.png)
+![Scale Experiment Results](results/results_scale.png)
 
 ### Inference & Analysis
 
@@ -140,7 +140,7 @@ We observed a **counter-intuitive trend** where increasing data initially degrad
 
 > ⚠️ **Note**: The 100% Pass Rate for Java is an **experimental artifact** due to the lack of a Java compiler in the evaluation environment. The `check_syntax()` function returns `True` by default for non-Python languages.
 
-![Language Experiment Results](results_lang.png)
+![Language Experiment Results](results/results_lang.png)
 
 ### Inference & Analysis
 
