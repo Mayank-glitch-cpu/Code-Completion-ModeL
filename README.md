@@ -355,8 +355,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📧 Contact
 
-**Author**: Mihir Vyas  
-**Email**: mvyas7@example.com  
+**Author**: Mayank Vyas  
+**Email**: mvyas7@asu.edu  
 **GitHub**: [@mvyas7](https://github.com/mvyas7)
 
 ---
